@@ -1054,4 +1054,62 @@ impl<'a> ReplayProcessor<'a> {
         )
         .copied()
     }
+
+    /// Returns the player's camera settings by traversing `CameraSettingsActor_TA` actors.
+    ///
+    /// In post-EAC replays, camera settings are NOT on the PRI actor. Instead, each player
+    /// gets a dedicated `CameraSettingsActor_TA` actor that carries a back-reference to the
+    /// player's PRI actor via `TAGame.CameraSettingsActor_TA:PRI` (an `ActiveActor` attribute).
+    ///
+    /// Algorithm:
+    /// 1. Get the player's PRI actor ID from `player_to_actor_id`.
+    /// 2. Iterate all currently active `TAGame.Default__CameraSettingsActor_TA` actors.
+    /// 3. For each cam actor, read the `:PRI` `ActiveActor` attribute.
+    /// 4. If the referenced actor ID matches the player's PRI actor ID, read `:ProfileSettings`.
+    ///
+    /// Complexity: O(players × cam_actors) — for a 3v3 this is at most 6×6 = 36 comparisons.
+    /// Gracefully returns `Err` if no matching cam actor is found (caller uses `.ok()`).
+    pub fn get_player_cam_settings_from_actor(
+        &self,
+        player_id: &PlayerId,
+    ) -> SubtrActorResult<boxcars::CamSettings> {
+        let player_actor_id = self.get_player_actor_id(player_id)?;
+
+        // Get object IDs for the two attributes we need to read from cam actors.
+        // If either key is absent from the replay's objects table, bail early.
+        let pri_attr_obj_id = self.get_object_id_for_key(CAMERA_SETTINGS_ACTOR_PRI_KEY)?;
+        let profile_attr_obj_id = self.get_object_id_for_key(CAMERA_SETTINGS_ACTOR_PROFILE_KEY)?;
+
+        // Iterate all CameraSettingsActor_TA actors currently in the actor state.
+        // iter_actors_by_type returns None if the type is unknown — use iter_actors_by_type_err
+        // so we propagate a typed error rather than silently returning nothing.
+        for (_cam_actor_id, cam_state) in self.iter_actors_by_type_err(CAMERA_SETTINGS_ACTOR_TYPE)? {
+            // Read the :PRI attribute — an ActiveActor pointing back to the player's PRI.
+            let Some((pri_attr, _)) = cam_state.attributes.get(pri_attr_obj_id) else {
+                continue;
+            };
+            let boxcars::Attribute::ActiveActor(active_actor) = pri_attr else {
+                continue;
+            };
+            // Only consider active links (active == true means the actor is alive).
+            if !active_actor.active {
+                continue;
+            }
+            // Check if this cam actor's :PRI points to our player's PRI actor.
+            if active_actor.actor != player_actor_id {
+                continue;
+            }
+            // Found the cam actor for this player — read :ProfileSettings.
+            let Some((profile_attr, _)) = cam_state.attributes.get(profile_attr_obj_id) else {
+                continue;
+            };
+            if let boxcars::Attribute::CamSettings(cam) = profile_attr {
+                return Ok(*cam.clone());
+            }
+        }
+
+        SubtrActorError::new_result(SubtrActorErrorVariant::PropertyNotFoundInState {
+            property: CAMERA_SETTINGS_ACTOR_PROFILE_KEY,
+        })
+    }
 }

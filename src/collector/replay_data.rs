@@ -787,12 +787,13 @@ impl ReplayDataCollector {
         let meta = processor.get_replay_meta()?;
 
         // Extract per-player camera settings and car body ID from the network stream.
-        // Both attributes live on the PRI actor and are available in all replay formats.
+        // Camera settings are extracted via CameraSettingsActor_TA actor traversal (post-EAC).
+        // Car body ID comes from TAGame.PRI_TA:ClientLoadouts (TeamLoadout.blue.body).
         // We use .ok() so a missing attribute for one player never fails the whole parse.
         let player_settings: Vec<(PlayerId, PlayerSettings)> = processor
             .iter_player_ids_in_order()
             .map(|player_id| {
-                let cam = processor.get_player_cam_settings(player_id).ok();
+                let cam = processor.get_player_cam_settings_from_actor(player_id).ok();
                 let car_body_id = processor.get_player_car_body_id(player_id).ok();
                 let steering_sensitivity =
                     processor.get_player_steering_sensitivity(player_id).ok();
@@ -1037,6 +1038,77 @@ mod player_settings_tests {
         assert!(
             has_any_steering,
             "at least one player should have steering_sensitivity in march 2026 replay"
+        );
+    }
+
+    /// Verify camera FOV is extracted from a post-EAC replay via CameraSettingsActor_TA traversal.
+    #[test]
+    fn post_eac_replay_has_camera_fov() {
+        let rd = parse_replay("assets/post-eac-ranked-doubles-2026-04-28.replay");
+        let has_any_fov = rd
+            .player_settings
+            .iter()
+            .any(|(_, s)| s.camera_fov.is_some());
+        assert!(
+            has_any_fov,
+            "at least one player should have camera_fov in post-EAC replay via actor traversal"
+        );
+        for (player_id, settings) in &rd.player_settings {
+            println!(
+                "Player {:?}: camera_fov={:?}, camera_height={:?}, camera_pitch={:?}, \
+                 camera_distance={:?}, camera_stiffness={:?}, camera_swivel_speed={:?}, \
+                 camera_transition_speed={:?}",
+                player_id,
+                settings.camera_fov,
+                settings.camera_height,
+                settings.camera_pitch,
+                settings.camera_distance,
+                settings.camera_stiffness,
+                settings.camera_swivel_speed,
+                settings.camera_transition_speed,
+            );
+        }
+    }
+
+    /// Verify all camera settings fields are populated for all players in a post-EAC replay.
+    #[test]
+    fn post_eac_replay_all_players_have_camera_settings() {
+        let rd = parse_replay("assets/post-eac-ranked-doubles-2026-04-28.replay");
+        assert!(
+            !rd.player_settings.is_empty(),
+            "player_settings should not be empty"
+        );
+        // Every player should have camera settings (not just some).
+        for (player_id, settings) in &rd.player_settings {
+            assert!(
+                settings.camera_fov.is_some(),
+                "Player {:?} should have camera_fov",
+                player_id
+            );
+            assert!(
+                settings.camera_height.is_some(),
+                "Player {:?} should have camera_height",
+                player_id
+            );
+            assert!(
+                settings.camera_distance.is_some(),
+                "Player {:?} should have camera_distance",
+                player_id
+            );
+        }
+    }
+
+    /// Regression: camera settings also populate on the March 2026 replay.
+    #[test]
+    fn march_2026_replay_has_camera_settings() {
+        let rd = parse_replay("assets/recent-ranked-doubles-2026-03-10.replay");
+        let has_any_fov = rd
+            .player_settings
+            .iter()
+            .any(|(_, s)| s.camera_fov.is_some());
+        assert!(
+            has_any_fov,
+            "at least one player should have camera_fov in march 2026 replay"
         );
     }
 }

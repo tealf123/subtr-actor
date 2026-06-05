@@ -29,6 +29,16 @@ pub static IGNORE_SYNCING_KEY: &str = "TAGame.RBActor_TA:bIgnoreSyncing";
 pub static HANDBRAKE_KEY: &str = "TAGame.Vehicle_TA:bReplicatedHandbrake";
 pub static LAST_BOOST_AMOUNT_KEY: &str = "TAGame.CarComponent_Boost_TA:ReplicatedBoostAmount.Last";
 pub static CAM_SETTINGS_KEY: &str = "TAGame.PRI_TA:CameraSettings";
+/// `TAGame.CameraSettingsActor_TA` — the archetype name used in new_actor object_id.
+/// Each player gets one of these actors; it holds their camera profile.
+pub static CAMERA_SETTINGS_ACTOR_TYPE: &str = "TAGame.Default__CameraSettingsActor_TA";
+/// `TAGame.CameraSettingsActor_TA:PRI` — ActiveActor attribute linking the cam actor back
+/// to the player's PRI actor. Used to match cam actors to players.
+pub static CAMERA_SETTINGS_ACTOR_PRI_KEY: &str = "TAGame.CameraSettingsActor_TA:PRI";
+/// `TAGame.CameraSettingsActor_TA:ProfileSettings` — CamSettings attribute containing
+/// FOV, height, pitch, distance, stiffness, swivel speed, and transition speed.
+pub static CAMERA_SETTINGS_ACTOR_PROFILE_KEY: &str = "TAGame.CameraSettingsActor_TA:ProfileSettings";
+
 /// `TAGame.PRI_TA:ClientLoadouts` (plural) — present in post-EAC replays as a TeamLoadout
 /// containing both blue and orange Loadout entries for the player. The `.blue.body` field
 /// holds the car body ID regardless of which team the player is on.
