@@ -534,6 +534,34 @@ pub struct FrameData {
 /// // Access demolition events
 /// println!("Total demolitions: {}", replay_data.demolish_infos.len());
 /// ```
+/// Camera settings and car body ID extracted from the network stream for a single player.
+///
+/// These attributes are stored in `TAGame.PRI_TA:CameraSettings` and
+/// `TAGame.PRI_TA:ClientLoadout` in the replay network stream and are available
+/// in all replay formats including post-EAC replays.
+#[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct PlayerSettings {
+    /// Car body ID from `TAGame.PRI_TA:ClientLoadouts` (TeamLoadout.blue.body), or `None` if not present.
+    pub car_body_id: Option<u32>,
+    /// Steering sensitivity from `TAGame.PRI_TA:SteeringSensitivity`, or `None` if not present.
+    pub steering_sensitivity: Option<f32>,
+    /// Camera field of view in degrees, or `None` if not present.
+    pub camera_fov: Option<f32>,
+    /// Camera height offset, or `None` if not present.
+    pub camera_height: Option<f32>,
+    /// Camera pitch angle in degrees, or `None` if not present.
+    pub camera_pitch: Option<f32>,
+    /// Camera distance from car, or `None` if not present.
+    pub camera_distance: Option<f32>,
+    /// Camera stiffness (how tightly the camera follows the car), or `None` if not present.
+    pub camera_stiffness: Option<f32>,
+    /// Camera swivel speed, or `None` if not present.
+    pub camera_swivel_speed: Option<f32>,
+    /// Camera transition speed, or `None` if not present.
+    pub camera_transition_speed: Option<f32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, ts_rs::TS)]
 #[ts(export)]
 pub struct ReplayData {
@@ -557,6 +585,10 @@ pub struct ReplayData {
     pub goal_events: Vec<GoalEvent>,
     /// Heuristic or otherwise derived replay enrichments
     pub heuristic_data: ReplayDataHeuristicData,
+    /// Per-player camera settings and car body ID extracted from the network stream.
+    /// Keyed by [`PlayerId`] in team-zero-first order.
+    #[ts(as = "Vec<(crate::ts_bindings::RemoteIdTs, PlayerSettings)>")]
+    pub player_settings: Vec<(PlayerId, PlayerSettings)>,
 }
 
 impl ReplayData {
@@ -753,6 +785,32 @@ impl ReplayDataCollector {
         supplemental_data: ReplayDataSupplementalData,
     ) -> SubtrActorResult<ReplayData> {
         let meta = processor.get_replay_meta()?;
+
+        // Extract per-player camera settings and car body ID from the network stream.
+        // Both attributes live on the PRI actor and are available in all replay formats.
+        // We use .ok() so a missing attribute for one player never fails the whole parse.
+        let player_settings: Vec<(PlayerId, PlayerSettings)> = processor
+            .iter_player_ids_in_order()
+            .map(|player_id| {
+                let cam = processor.get_player_cam_settings(player_id).ok();
+                let car_body_id = processor.get_player_car_body_id(player_id).ok();
+                let steering_sensitivity =
+                    processor.get_player_steering_sensitivity(player_id).ok();
+                let settings = PlayerSettings {
+                    car_body_id,
+                    steering_sensitivity,
+                    camera_fov: cam.as_ref().map(|c| c.fov),
+                    camera_height: cam.as_ref().map(|c| c.height),
+                    camera_pitch: cam.as_ref().map(|c| c.angle),
+                    camera_distance: cam.as_ref().map(|c| c.distance),
+                    camera_stiffness: cam.as_ref().map(|c| c.stiffness),
+                    camera_swivel_speed: cam.as_ref().map(|c| c.swivel),
+                    camera_transition_speed: cam.as_ref().and_then(|c| c.transition),
+                };
+                (player_id.clone(), settings)
+            })
+            .collect();
+
         Ok(ReplayData {
             meta,
             demolish_infos: processor.demolishes,
@@ -764,6 +822,7 @@ impl ReplayDataCollector {
             goal_events: processor.goal_events,
             heuristic_data: supplemental_data.heuristic_data,
             frame_data: self.get_frame_data(),
+            player_settings,
         })
     }
 
@@ -893,5 +952,137 @@ impl Collector for ReplayDataCollector {
         self.frame_data
             .add_frame(metadata_frame, ball_frame, player_frames)?;
         Ok(TimeAdvance::NextFrame)
+    }
+}
+
+#[cfg(test)]
+mod player_settings_tests {
+    use super::*;
+
+    fn parse_replay(path: &str) -> ReplayData {
+        let data = std::fs::read(path).expect("replay file should exist");
+        let replay = boxcars::ParserBuilder::new(&data)
+            .parse()
+            .expect("replay should parse");
+        ReplayDataCollector::new()
+            .get_replay_data(&replay)
+            .expect("collector should succeed")
+    }
+
+    /// Verify car body ID is extracted from a post-EAC replay via ClientLoadouts (TeamLoadout).
+    #[test]
+    fn post_eac_replay_has_car_body_id() {
+        let rd = parse_replay("assets/post-eac-ranked-doubles-2026-04-28.replay");
+        assert!(
+            !rd.player_settings.is_empty(),
+            "player_settings should not be empty"
+        );
+        let has_any_car_body = rd
+            .player_settings
+            .iter()
+            .any(|(_, s)| s.car_body_id.is_some());
+        assert!(
+            has_any_car_body,
+            "at least one player should have a non-None car_body_id in post-EAC replay"
+        );
+        for (player_id, settings) in &rd.player_settings {
+            println!(
+                "Player {:?}: car_body_id={:?}, steering_sensitivity={:?}",
+                player_id, settings.car_body_id, settings.steering_sensitivity
+            );
+        }
+    }
+
+    /// Verify steering sensitivity is extracted from a post-EAC replay.
+    #[test]
+    fn post_eac_replay_has_steering_sensitivity() {
+        let rd = parse_replay("assets/post-eac-ranked-doubles-2026-04-28.replay");
+        let has_any_steering = rd
+            .player_settings
+            .iter()
+            .any(|(_, s)| s.steering_sensitivity.is_some());
+        assert!(
+            has_any_steering,
+            "at least one player should have steering_sensitivity in post-EAC replay"
+        );
+        for (player_id, settings) in &rd.player_settings {
+            println!(
+                "Player {:?}: steering_sensitivity={:?}",
+                player_id, settings.steering_sensitivity
+            );
+        }
+    }
+
+    /// Verify car body ID and steering sensitivity also work on the March 2026 replay
+    /// (regression guard — this replay also uses the post-EAC format with ClientLoadouts).
+    #[test]
+    fn march_2026_replay_has_car_body_and_steering() {
+        let rd = parse_replay("assets/recent-ranked-doubles-2026-03-10.replay");
+        assert!(
+            !rd.player_settings.is_empty(),
+            "player_settings should not be empty"
+        );
+        let has_any_car_body = rd
+            .player_settings
+            .iter()
+            .any(|(_, s)| s.car_body_id.is_some());
+        assert!(
+            has_any_car_body,
+            "at least one player should have car_body_id in march 2026 replay"
+        );
+        let has_any_steering = rd
+            .player_settings
+            .iter()
+            .any(|(_, s)| s.steering_sensitivity.is_some());
+        assert!(
+            has_any_steering,
+            "at least one player should have steering_sensitivity in march 2026 replay"
+        );
+    }
+}
+
+#[cfg(test)]
+mod diag_tests {
+    use super::*;
+    use crate::processor::ReplayProcessor;
+
+    /// Diagnostic test: print all attribute keys on PRI actors to understand
+    /// what's actually in the network stream for post-EAC replays.
+    #[test]
+    fn diag_print_pri_actor_attributes() {
+        let data = std::fs::read("assets/post-eac-ranked-doubles-2026-04-28.replay")
+            .expect("replay file should exist");
+        let replay = boxcars::ParserBuilder::new(&data)
+            .parse()
+            .expect("replay should parse");
+
+        let mut processor = ReplayProcessor::new(&replay).expect("processor should init");
+        // Process all frames so actor state is fully populated
+        processor
+            .process_all(&mut [] as &mut [&mut dyn crate::Collector])
+            .expect("process_all should succeed");
+
+        // Print all attribute keys for each player's PRI actor
+        for player_id in processor.iter_player_ids_in_order() {
+            println!("\n=== Player {:?} ===", player_id);
+            if let Ok(actor_id) = processor.get_player_actor_id(player_id) {
+                if let Ok(state) = processor.get_actor_state(&actor_id) {
+                    let mut keys: Vec<String> = state
+                        .attributes
+                        .keys()
+                        .filter_map(|oid| processor.object_id_to_name.get(oid))
+                        .map(|s| s.clone())
+                        .collect();
+                    keys.sort();
+                    for key in &keys {
+                        println!("  {}", key);
+                    }
+                } else {
+                    println!("  (could not get actor state)");
+                }
+            } else {
+                println!("  (could not get actor id)");
+            }
+        }
     }
 }

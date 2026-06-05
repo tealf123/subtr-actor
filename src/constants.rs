@@ -28,6 +28,13 @@ pub static DODGES_REFRESHED_COUNTER_KEY: &str = "TAGame.Car_TA:DodgesRefreshedCo
 pub static IGNORE_SYNCING_KEY: &str = "TAGame.RBActor_TA:bIgnoreSyncing";
 pub static HANDBRAKE_KEY: &str = "TAGame.Vehicle_TA:bReplicatedHandbrake";
 pub static LAST_BOOST_AMOUNT_KEY: &str = "TAGame.CarComponent_Boost_TA:ReplicatedBoostAmount.Last";
+pub static CAM_SETTINGS_KEY: &str = "TAGame.PRI_TA:CameraSettings";
+/// `TAGame.PRI_TA:ClientLoadouts` (plural) — present in post-EAC replays as a TeamLoadout
+/// containing both blue and orange Loadout entries for the player. The `.blue.body` field
+/// holds the car body ID regardless of which team the player is on.
+pub static CLIENT_LOADOUTS_KEY: &str = "TAGame.PRI_TA:ClientLoadouts";
+/// `TAGame.PRI_TA:SteeringSensitivity` — float attribute confirmed present in post-EAC replays.
+pub static STEERING_SENSITIVITY_KEY: &str = "TAGame.PRI_TA:SteeringSensitivity";
 pub static MATCH_ASSISTS_KEY: &str = "TAGame.PRI_TA:MatchAssists";
 pub static MATCH_GOALS_KEY: &str = "TAGame.PRI_TA:MatchGoals";
 pub static MATCH_SAVES_KEY: &str = "TAGame.PRI_TA:MatchSaves";

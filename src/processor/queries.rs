@@ -1000,4 +1000,58 @@ impl<'a> ReplayProcessor<'a> {
         )
         .cloned()
     }
+
+    /// Returns the player's camera settings from the network stream.
+    ///
+    /// Reads `TAGame.PRI_TA:CameraSettings` from the player's PRI actor.
+    /// Note: this key is absent in post-EAC replays; camera settings in those
+    /// replays live on a separate `CameraSettingsActor_TA` actor (future work).
+    pub fn get_player_cam_settings(
+        &self,
+        player_id: &PlayerId,
+    ) -> SubtrActorResult<boxcars::CamSettings> {
+        get_actor_attribute_matching!(
+            self,
+            &self.get_player_actor_id(player_id)?,
+            CAM_SETTINGS_KEY,
+            boxcars::Attribute::CamSettings
+        )
+        .map(|boxed| *boxed.clone())
+    }
+
+    /// Returns the player's car body ID from the network stream.
+    ///
+    /// Reads `TAGame.PRI_TA:ClientLoadouts` (plural) from the player's PRI actor.
+    /// Post-EAC replays use `ClientLoadouts` → `TeamLoadout` which contains both
+    /// a `.blue` and `.orange` `Loadout`; `.blue.body` holds the car body ID
+    /// regardless of which team the player is on (both entries carry the same car).
+    pub fn get_player_car_body_id(
+        &self,
+        player_id: &PlayerId,
+    ) -> SubtrActorResult<u32> {
+        get_actor_attribute_matching!(
+            self,
+            &self.get_player_actor_id(player_id)?,
+            CLIENT_LOADOUTS_KEY,
+            boxcars::Attribute::TeamLoadout
+        )
+        .map(|boxed| boxed.blue.body)
+    }
+
+    /// Returns the player's steering sensitivity from the network stream.
+    ///
+    /// Reads `TAGame.PRI_TA:SteeringSensitivity` from the player's PRI actor.
+    /// This float attribute is confirmed present in post-EAC replays.
+    pub fn get_player_steering_sensitivity(
+        &self,
+        player_id: &PlayerId,
+    ) -> SubtrActorResult<f32> {
+        get_actor_attribute_matching!(
+            self,
+            &self.get_player_actor_id(player_id)?,
+            STEERING_SENSITIVITY_KEY,
+            boxcars::Attribute::Float
+        )
+        .copied()
+    }
 }
